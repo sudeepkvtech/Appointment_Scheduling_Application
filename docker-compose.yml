@@ -207,6 +207,33 @@ services:
       timeout: 5s
       retries: 5
 
+  # Master Data Service
+  master-data-service:
+    build:
+      context: ./master-data-service
+      dockerfile: Dockerfile
+    container_name: appointment-master-data-service
+    depends_on:
+      postgres:
+        condition: service_healthy
+      eureka-server:
+        condition: service_healthy
+    ports:
+      - "8085:8085"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/master_data_db
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
+    networks:
+      - appointment-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8085/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # Notification Service
   notification-service:
     build:
