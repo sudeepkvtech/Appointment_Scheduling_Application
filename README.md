@@ -1,367 +1,521 @@
 # Appointment Scheduling System - Microservices Architecture
 
-A comprehensive appointment scheduling application built using microservices architecture with Java Spring Boot, featuring encounter management, resource scheduling, and event-driven communication.
+A production-ready appointment scheduling application built using **microservices architecture** with **Java Spring Boot**, featuring **encounter management**, **event-driven communication**, and **master data management**.
 
 ## 📋 Table of Contents
 - [Architecture Overview](#architecture-overview)
-- [Microservices](#microservices)
+- [Implemented Services](#implemented-services)
 - [Technology Stack](#technology-stack)
 - [Communication Patterns](#communication-patterns)
-- [Getting Started](#getting-started)
-- [Database Setup](#database-setup)
-- [Running the Services](#running-the-services)
-- [API Documentation](#api-documentation)
+- [Quick Start](#quick-start)
+- [API Endpoints](#api-endpoints)
+- [Authentication](#authentication)
+- [Database Schema](#database-schema)
+- [Development](#development)
+
+---
 
 ## 🏗️ Architecture Overview
 
-This system follows a microservices architecture with event-driven communication using Apache Kafka for asynchronous operations and REST APIs for synchronous queries.
+Event-driven microservices architecture with service discovery, API gateway, and asynchronous messaging.
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                         API GATEWAY                             │
-│                   (Spring Cloud Gateway)                         │
-└─────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────┐
+│                    API GATEWAY (Port: 8080)                         │
+│             Single Entry Point for All Clients                      │
+└────────────────────────────────────────────────────────────────────┘
                               │
                 ┌─────────────┴──────────────┐
-                │    Service Discovery       │
-                │   (Netflix Eureka)         │
+                │    Service Discovery        │
+                │   (Eureka - Port: 8761)     │
                 └────────────────────────────┘
                               │
-        ┌─────────────────────┼─────────────────────┐
-        │                     │                     │
-  Identity Service    Scheduling Service    Encounter Service
-        │                     │                     │
-        │                     │                     │
-        └──────────┬──────────┴──────────┬──────────┘
-                   │                     │
-              ┌────▼──────┐      ┌──────▼────────┐
-              │   Kafka   │      │  PostgreSQL   │
-              │  Broker   │      │  (Per Service)│
-              └───────────┘      └───────────────┘
+        ┌─────────────────────┼─────────────────────────┐
+        │                     │                         │
+  ┌─────▼────────┐   ┌───────▼────────┐    ┌──────────▼─────────┐
+  │ Scheduling   │   │ Master Data    │    │   Encounter        │
+  │ Service      │   │ Service        │    │   Service          │
+  │ (8082)       │   │ (8085)         │    │   (8083)           │
+  └──────┬───────┘   └────────────────┘    └──────┬─────────────┘
+         │                                          │
+         │ Publishes Events                        │ Consumes Events
+         └────────────┬──────────────────────────────┘
+                     │
+              ┌──────▼──────┐
+              │    Kafka     │
+              │   Broker     │
+              └──────────────┘
 ```
 
-## 🔧 Microservices
+---
 
-### 1. **Service Discovery** (Port: 8761)
-- Service registration and discovery using Netflix Eureka
-- Health monitoring
-- Load balancing
+## ✅ Implemented Services
 
-### 2. **API Gateway** (Port: 8080)
-- Single entry point for all client requests
-- Request routing
-- Authentication/Authorization
-- Rate limiting
+### 1. **Service Discovery** (Eureka Server) - Port 8761
+- All services register here for automatic discovery
+- Health monitoring and load balancing
+- Dashboard: http://localhost:8761
+
+### 2. **API Gateway** - Port 8080 ⭐
+**Single entry point for all API requests**
+- Routes requests to appropriate services
+- JWT authentication support (optional, disabled by default)
 - CORS handling
+- Load balancing via Eureka
 
-### 3. **Identity Service** (Port: 8081)
-- User authentication and authorization
-- JWT token management
-- Patient profile management
-- User roles and permissions
+**Routes:**
+- `/api/v1/scheduling/**` → Scheduling Service
+- `/api/v1/encounters/**` → Encounter Service
+- `/api/v1/appointment-types/**` → Master Data Service
+- `/api/v1/resources/**` → Master Data Service
+- `/api/v1/locations/**` → Master Data Service
 
-**Database**: `identity_db`
-- users, patients, roles, permissions
-
-### 4. **Scheduling Service** (Port: 8082) ⭐ **Core Service**
+### 3. **Scheduling Service** - Port 8082
+**Core appointment management**
+- Create, update, cancel, reschedule appointments
 - Time slot management
-- Appointment booking
-- Availability search
-- Rescheduling and cancellation
-- Waitlist management
+- Conflict detection
+- Audit trail (appointment history)
+- **Publishes Events** to Kafka
 
-**Database**: `scheduling_db`
+**Database:** `scheduling_db`
 - appointments, time_slots, waitlist, appointment_history
 
-**Events Published**:
-- `AppointmentCreatedEvent`
-- `AppointmentConfirmedEvent`
-- `AppointmentCancelledEvent`
-- `AppointmentRescheduledEvent`
-- `AppointmentCheckedInEvent`
-- `AppointmentCompletedEvent`
-
-### 5. **Encounter Service** (Port: 8083)
-- Clinical documentation (SOAP notes)
-- Encounter lifecycle management
-- Vital signs recording
-- Diagnosis and procedure coding
+### 4. **Encounter Service** - Port 8083
+**Clinical documentation**
+- Auto-creates encounters from appointment events
+- SOAP notes (Subjective, Objective, Assessment, Plan)
+- Vital signs, diagnoses, procedures
 - Provider signatures
+- **Consumes Events** from Kafka
 
-**Database**: `encounter_db`
-- encounters, encounter_vitals, encounter_diagnoses, encounter_procedures
+**Database:** `encounter_db`
+- encounters
 
-**Events Consumed**:
-- `AppointmentConfirmedEvent` → Creates encounter
-- `AppointmentCancelledEvent` → Cancels encounter
-- `AppointmentCheckedInEvent` → Updates encounter status
+### 5. **Master Data Service** - Port 8085
+**Reference data management**
+- Appointment Types (consultation, follow-up, etc.)
+- Resources (doctors, nurses, providers)
+- Locations (clinics, facilities)
+- Complete CRUD operations
 
-### 6. **Notification Service** (Port: 8084)
-- Email/SMS notifications
-- Appointment reminders
-- Confirmation requests
-- Template management
+**Database:** `master_data_db`
+- appointment_types, resources, locations
 
-**Database**: `notification_db`
-- notifications, notification_templates
-
-**Events Consumed**:
-- `AppointmentCreatedEvent` → Send confirmation
-- `AppointmentConfirmedEvent` → Schedule reminder
-- `AppointmentCancelledEvent` → Send cancellation notice
-- `AppointmentRescheduledEvent` → Send reschedule notice
+---
 
 ## 💻 Technology Stack
 
 ### Backend
-- **Java**: 17
+- **Java**: 17 (LTS)
 - **Spring Boot**: 3.2.1
 - **Spring Cloud**: 2023.0.0
+  - Gateway (routing)
+  - Netflix Eureka (service discovery)
 - **Spring Data JPA**: Database access
-- **Spring Security**: Authentication & Authorization
-- **Spring Cloud Gateway**: API Gateway
-- **Netflix Eureka**: Service Discovery
-- **Apache Kafka**: Event streaming
-- **PostgreSQL**: Primary database
+- **Spring Kafka**: Event streaming
+- **PostgreSQL**: 15+ (per-service databases)
+- **Flyway**: Database migrations
 - **Lombok**: Reduce boilerplate
-- **MapStruct**: DTO mapping
 - **SpringDoc OpenAPI**: API documentation
 
-### Build Tool
-- **Maven**: 3.9+
+### Infrastructure
+- **Apache Kafka**: Event broker
+- **Docker & Docker Compose**: Containerization
+- **Maven**: Build tool
 
-### DevOps
-- **Docker**: Containerization
-- **Docker Compose**: Local development
+---
 
 ## 🔄 Communication Patterns
 
-### Synchronous Communication (REST)
-Used for:
-- Read operations (GET requests)
-- Immediate validation
-- Direct queries where user needs immediate response
+### Synchronous (REST APIs)
+**Used for:** Queries, validation, CRUD operations
 
-**Example**:
 ```java
-// Scheduling Service validates resource exists
-GET http://resource-service/api/v1/resources/{id}
+// Scheduling Service validates data from Master Data Service
+GET http://master-data-service/api/v1/appointment-types/{id}
+GET http://master-data-service/api/v1/resources/{id}
+GET http://master-data-service/api/v1/locations/{id}
 ```
 
-### Asynchronous Communication (Kafka Events)
-Used for:
-- State changes (Created, Updated, Deleted)
-- Notifications
-- Operations that don't need immediate response
-- Decoupling services
+### Asynchronous (Kafka Events)
+**Used for:** State changes, notifications, decoupling
 
-**Example Flow**:
 ```
-1. Client books appointment → Scheduling Service
-2. Scheduling Service:
-   - Saves appointment to database
-   - Publishes AppointmentCreatedEvent to Kafka
-   - Returns 201 Created to client
-
-3. Event Consumers (Independent):
-   - Encounter Service listens → Creates encounter
-   - Notification Service listens → Sends confirmation email
+Scheduling Service                 Encounter Service
+       │                                  │
+       │ 1. Create Appointment            │
+       │                                  │
+       │ 2. Publish Event ────────────────▶ 3. Listen to Event
+       │    (Kafka)                       │
+       │                                  │ 4. Create Encounter
+       │ 5. Return 201 Created            │    (asynchronously)
+       │                                  │
 ```
 
-## 🚀 Getting Started
+**Events:**
+- `AppointmentCreatedEvent`
+- `AppointmentConfirmedEvent` → Triggers encounter creation
+- `AppointmentCancelledEvent` → Cancels encounter
+- `AppointmentCheckedInEvent` → Starts encounter
+- `AppointmentRescheduledEvent`
+- `AppointmentCompletedEvent`
+
+---
+
+## 🚀 Quick Start
 
 ### Prerequisites
-- Java 17 or higher
-- Maven 3.9+
-- Docker and Docker Compose
-- PostgreSQL 14+ (or use Docker)
-- Apache Kafka (or use Docker)
+- **Java 17** or higher
+- **Maven 3.9+**
+- **Docker** and **Docker Compose**
 
-### Clone the Repository
+### Option 1: Run with Docker Compose (Recommended)
+
 ```bash
+# Clone the repository
 git clone <repository-url>
 cd Appointment_Scheduling_Application
-```
 
-### Build the Project
-```bash
-# Build all modules
-mvn clean install
-
-# Skip tests for faster build
-mvn clean install -DskipTests
-```
-
-## 🗄️ Database Setup
-
-### Using Docker Compose (Recommended)
-```bash
-# Start all infrastructure (PostgreSQL, Kafka, Zookeeper, Eureka)
-docker-compose up -d
-```
-
-### Manual Setup
-Create databases for each service:
-```sql
-CREATE DATABASE identity_db;
-CREATE DATABASE scheduling_db;
-CREATE DATABASE encounter_db;
-CREATE DATABASE notification_db;
-```
-
-### Database Migrations
-Each service uses Flyway for database migrations. Migrations run automatically on startup.
-
-## ▶️ Running the Services
-
-### Option 1: Using Docker Compose (Recommended)
-```bash
 # Start all services
-docker-compose up
-
-# Or start in detached mode
 docker-compose up -d
 
 # View logs
 docker-compose logs -f
 
-# Stop all services
-docker-compose down
+# Check service health
+curl http://localhost:8761  # Eureka Dashboard
+curl http://localhost:8080/actuator/health  # API Gateway Health
 ```
 
-### Option 2: Running Individually
+**Services will start in this order:**
+1. PostgreSQL (5432)
+2. Zookeeper (2181)
+3. Kafka (9092)
+4. Eureka Server (8761)
+5. API Gateway (8080)
+6. Master Data Service (8085)
+7. Scheduling Service (8082)
+8. Encounter Service (8083)
 
-#### 1. Start Infrastructure
+### Option 2: Run Locally
+
 ```bash
-# Start Service Discovery (Eureka)
+# 1. Start Infrastructure
+docker-compose up postgres kafka zookeeper -d
+
+# 2. Build all services
+mvn clean install -DskipTests
+
+# 3. Start Service Discovery
 cd service-discovery
 mvn spring-boot:run
-```
-Access Eureka Dashboard: http://localhost:8761
 
-#### 2. Start Core Services
-```bash
-# Terminal 1: Identity Service
-cd identity-service
-mvn spring-boot:run
-
-# Terminal 2: Scheduling Service
-cd scheduling-service
-mvn spring-boot:run
-
-# Terminal 3: Encounter Service
-cd encounter-service
-mvn spring-boot:run
-
-# Terminal 4: Notification Service
-cd notification-service
-mvn spring-boot:run
+# 4. Start services (in separate terminals)
+cd api-gateway && mvn spring-boot:run
+cd master-data-service && mvn spring-boot:run
+cd scheduling-service && mvn spring-boot:run
+cd encounter-service && mvn spring-boot:run
 ```
 
-#### 3. Start API Gateway
+### Verify Services are Running
+
 ```bash
-cd api-gateway
-mvn spring-boot:run
+# Check Eureka Dashboard (should show all services)
+open http://localhost:8761
+
+# Check API Gateway
+curl http://localhost:8080/actuator/health
+
+# Check individual services
+curl http://localhost:8082/actuator/health  # Scheduling
+curl http://localhost:8083/actuator/health  # Encounter
+curl http://localhost:8085/actuator/health  # Master Data
 ```
 
-### Service Ports
-| Service | Port | URL |
-|---------|------|-----|
-| Service Discovery (Eureka) | 8761 | http://localhost:8761 |
-| API Gateway | 8080 | http://localhost:8080 |
-| Identity Service | 8081 | http://localhost:8081 |
-| Scheduling Service | 8082 | http://localhost:8082 |
-| Encounter Service | 8083 | http://localhost:8083 |
-| Notification Service | 8084 | http://localhost:8084 |
+---
 
-## 📚 API Documentation
+## 📚 API Endpoints
 
-Each service exposes Swagger UI for API documentation:
-
-- **API Gateway Swagger**: http://localhost:8080/swagger-ui.html
-- **Identity Service**: http://localhost:8081/swagger-ui.html
-- **Scheduling Service**: http://localhost:8082/swagger-ui.html
-- **Encounter Service**: http://localhost:8083/swagger-ui.html
-- **Notification Service**: http://localhost:8084/swagger-ui.html
-
-### Sample API Endpoints
-
-#### Authentication
-```bash
-# Register user
-POST http://localhost:8080/api/v1/auth/register
-
-# Login
-POST http://localhost:8080/api/v1/auth/login
+### Base URL (via API Gateway)
+```
+http://localhost:8080/api/v1/
 ```
 
-#### Scheduling
+### Master Data Service
+
+#### Appointment Types
 ```bash
-# Search availability
-POST http://localhost:8080/api/v1/scheduling/availability/search
+# Get all appointment types
+GET /appointment-types
 
-# Book appointment
-POST http://localhost:8080/api/v1/scheduling/appointments
+# Create appointment type
+POST /appointment-types
+{
+  "name": "Initial Consultation",
+  "code": "CONSULT-INIT",
+  "durationMinutes": 30,
+  "category": "Medical",
+  "defaultPrice": 150.00
+}
 
-# Get appointment
-GET http://localhost:8080/api/v1/scheduling/appointments/{id}
+# Get by ID
+GET /appointment-types/{id}
+
+# Get by code
+GET /appointment-types/code/CONSULT-INIT
+```
+
+#### Resources (Providers)
+```bash
+# Get all resources
+GET /resources
+
+# Get active resources with specialty filter
+GET /resources?activeOnly=true&specialty=Cardiology
+
+# Create resource
+POST /resources
+{
+  "code": "DR-001",
+  "firstName": "John",
+  "lastName": "Doe",
+  "specialty": "Cardiology",
+  "email": "john.doe@example.com"
+}
+
+# Get by code
+GET /resources/code/DR-001
+```
+
+#### Locations
+```bash
+# Get all locations
+GET /locations
+
+# Get active locations
+GET /locations?activeOnly=true&city=Boston
+
+# Create location
+POST /locations
+{
+  "name": "Main Clinic",
+  "code": "LOC-001",
+  "addressLine1": "123 Main St",
+  "city": "Boston",
+  "state": "MA",
+  "zipCode": "02101",
+  "timezone": "America/New_York"
+}
+```
+
+### Scheduling Service
+
+#### Appointments
+```bash
+# Create appointment
+POST /scheduling/appointments
+{
+  "patientId": "patient-uuid",
+  "resourceId": "resource-uuid",
+  "locationId": "location-uuid",
+  "appointmentTypeId": "type-uuid",
+  "startTime": "2024-12-15T10:00:00",
+  "endTime": "2024-12-15T11:00:00",
+  "chiefComplaint": "Annual checkup"
+}
+
+# Get appointment by ID
+GET /scheduling/appointments/{id}
+
+# Get appointments for patient
+GET /scheduling/appointments/patient/{patientId}
+
+# Get appointments for resource (provider)
+GET /scheduling/appointments/resource/{resourceId}
+
+# Confirm appointment (triggers encounter creation)
+POST /scheduling/appointments/{id}/confirm
 
 # Cancel appointment
-POST http://localhost:8080/api/v1/scheduling/appointments/{id}/cancel
+POST /scheduling/appointments/{id}/cancel
+{
+  "reason": "Patient requested cancellation",
+  "notifyPatient": true
+}
+
+# Reschedule appointment
+POST /scheduling/appointments/{id}/reschedule
+{
+  "newStartTime": "2024-12-16T14:00:00",
+  "newEndTime": "2024-12-16T15:00:00",
+  "reason": "Provider availability"
+}
+
+# Check-in appointment
+POST /scheduling/appointments/{id}/check-in
+
+# Complete appointment
+POST /scheduling/appointments/{id}/complete
 ```
 
-#### Encounters
-```bash
-# Get encounter by appointment
-GET http://localhost:8080/api/v1/encounters/appointment/{appointmentId}
+### Encounter Service
 
-# Update encounter
-PUT http://localhost:8080/api/v1/encounters/{id}
+```bash
+# Get encounter by appointment ID
+GET /encounters/appointment/{appointmentId}
+
+# Get encounter by ID
+GET /encounters/{id}
+
+# Get all encounters for patient
+GET /encounters/patient/{patientId}
+
+# Update encounter (add clinical notes)
+PUT /encounters/{id}
+{
+  "historyOfPresentIllness": "Patient reports...",
+  "physicalExamination": "Vital signs stable...",
+  "assessment": "Diagnosis...",
+  "plan": "Treatment plan...",
+  "vitalSigns": {
+    "temperature": "98.6",
+    "bloodPressure": "120/80",
+    "heartRate": "72"
+  }
+}
 
 # Sign encounter
-POST http://localhost:8080/api/v1/encounters/{id}/sign
+POST /encounters/{id}/sign?signature=Dr.JohnDoe
 ```
 
-## 🔐 Security
+---
 
-### Authentication Flow
-1. User logs in via Identity Service
-2. Receives JWT token
-3. Includes token in Authorization header for subsequent requests
-4. API Gateway validates token and routes to appropriate service
+## 🔐 Authentication
 
-### Sample Request with Authentication
-```bash
-curl -X GET \
-  http://localhost:8080/api/v1/scheduling/appointments \
-  -H 'Authorization: Bearer <jwt-token>'
+Authentication is **DISABLED** by default for development.
+
+To enable JWT authentication, see [AUTHENTICATION_GUIDE.md](./AUTHENTICATION_GUIDE.md)
+
+**Supported authentication methods:**
+- JWT (Web/Mobile apps)
+- API Keys (Third-party integrations)
+- OAuth 2.0 (Enterprise SSO)
+- Service-to-service (Internal JWT)
+
+---
+
+## 🗄️ Database Schema
+
+### Scheduling Service (`scheduling_db`)
+
+**appointments**
+- Core appointment data
+- Patient, resource, location, appointment type references
+- Status tracking (scheduled, confirmed, completed, cancelled)
+- Rescheduling support with audit trail
+
+**time_slots**
+- Available time slots for resources
+- Conflict management
+- Booking capacity
+
+**waitlist**
+- Patient waiting list when slots unavailable
+- Priority-based matching
+
+**appointment_history**
+- Complete audit trail
+- Tracks all changes to appointments
+
+### Encounter Service (`encounter_db`)
+
+**encounters**
+- Clinical documentation linked to appointments
+- SOAP notes
+- Vital signs (JSONB)
+- Diagnoses and procedure codes (JSONB)
+- Provider signatures
+
+### Master Data Service (`master_data_db`)
+
+**appointment_types**
+- Types of appointments
+- Duration, pricing, category
+
+**resources**
+- Providers/practitioners
+- Specialty, credentials, availability
+
+**locations**
+- Facilities/clinics
+- Operating hours, timezone, amenities
+
+---
+
+## 🛠️ Development
+
+### Project Structure
+
+```
+appointment-scheduling-system/
+├── shared-library/          # Common events, enums, exceptions
+├── service-discovery/       # Eureka server
+├── api-gateway/            # Spring Cloud Gateway
+├── scheduling-service/     # Appointment management
+├── encounter-service/      # Clinical documentation
+├── master-data-service/    # Reference data
+├── notification-service/   # (Skeleton - not required)
+├── docker-compose.yml      # All infrastructure
+├── init-databases.sql      # Database initialization
+└── pom.xml                # Parent POM
 ```
 
-## 🧪 Testing
+### Build & Test
 
-### Run Unit Tests
 ```bash
-# Test all modules
+# Build all modules
+mvn clean install
+
+# Build specific module
+mvn clean install -pl scheduling-service -am
+
+# Run tests
 mvn test
 
-# Test specific service
-cd scheduling-service
-mvn test
+# Skip tests
+mvn clean install -DskipTests
 ```
 
-### Run Integration Tests
-```bash
-mvn verify
-```
+### Database Migrations
 
-## 📊 Monitoring
+Each service uses **Flyway** for version-controlled database migrations.
+
+Migrations are located in:
+- `scheduling-service/src/main/resources/db/migration/`
+- `encounter-service/src/main/resources/db/migration/`
+- `master-data-service/src/main/resources/db/migration/`
+
+Migrations run automatically on application startup.
+
+### Swagger API Documentation
+
+Each service exposes Swagger UI:
+
+- **Scheduling**: http://localhost:8082/swagger-ui.html
+- **Encounter**: http://localhost:8083/swagger-ui.html
+- **Master Data**: http://localhost:8085/swagger-ui.html
+
+---
+
+## 🔍 Monitoring
 
 ### Eureka Dashboard
-Monitor service health and instances:
+Service discovery and health monitoring:
 - URL: http://localhost:8761
 
 ### Kafka UI (Optional)
-Use Kafka UI for monitoring topics and messages:
+Monitor Kafka topics and messages:
 ```bash
 docker run -p 8090:8080 \
   -e KAFKA_CLUSTERS_0_NAME=local \
@@ -370,46 +524,152 @@ docker run -p 8090:8080 \
 ```
 Access: http://localhost:8090
 
-## 🛠️ Development
+### Actuator Endpoints
 
-### Project Structure
-```
-appointment-scheduling-system/
-├── shared-library/          # Common DTOs, Events, Exceptions
-├── service-discovery/       # Eureka Server
-├── api-gateway/            # Spring Cloud Gateway
-├── identity-service/       # Authentication & Users
-├── scheduling-service/     # Core booking logic
-├── encounter-service/      # Clinical documentation
-├── notification-service/   # Alerts & Reminders
-├── docker-compose.yml      # Infrastructure setup
-└── pom.xml                # Parent POM
+Each service exposes Spring Boot Actuator:
+```bash
+GET /actuator/health
+GET /actuator/info
+GET /actuator/metrics
 ```
 
-### Adding a New Service
-1. Create module in parent POM
-2. Add dependency on shared-library
-3. Configure service discovery client
-4. Define REST endpoints
-5. Add Kafka listeners if needed
-6. Create database migrations
-7. Update docker-compose.yml
+---
+
+## 📝 Example Workflow
+
+### 1. Create Reference Data
+
+```bash
+# Create appointment type
+curl -X POST http://localhost:8080/api/v1/appointment-types \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Initial Consultation",
+    "code": "CONSULT-INIT",
+    "durationMinutes": 30,
+    "category": "Medical"
+  }'
+
+# Create resource (doctor)
+curl -X POST http://localhost:8080/api/v1/resources \
+  -H "Content-Type: application/json" \
+  -d '{
+    "code": "DR-001",
+    "firstName": "Jane",
+    "lastName": "Smith",
+    "specialty": "Cardiology"
+  }'
+
+# Create location
+curl -X POST http://localhost:8080/api/v1/locations \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Downtown Clinic",
+    "code": "LOC-001",
+    "addressLine1": "100 Main St",
+    "city": "Boston",
+    "state": "MA",
+    "zipCode": "02101"
+  }'
+```
+
+### 2. Book Appointment
+
+```bash
+curl -X POST http://localhost:8080/api/v1/scheduling/appointments \
+  -H "Content-Type: application/json" \
+  -d '{
+    "patientId": "patient-123",
+    "resourceId": "resource-uuid-from-step-1",
+    "locationId": "location-uuid-from-step-1",
+    "appointmentTypeId": "type-uuid-from-step-1",
+    "startTime": "2024-12-15T10:00:00",
+    "endTime": "2024-12-15T10:30:00",
+    "chiefComplaint": "Annual checkup"
+  }'
+```
+
+### 3. Confirm Appointment (Creates Encounter)
+
+```bash
+curl -X POST http://localhost:8080/api/v1/scheduling/appointments/{id}/confirm
+```
+
+**What happens:**
+1. Appointment status → CONFIRMED
+2. Event published to Kafka
+3. Encounter Service listens to event
+4. Encounter created automatically
+
+### 4. View Encounter
+
+```bash
+curl http://localhost:8080/api/v1/encounters/appointment/{appointmentId}
+```
+
+---
+
+## 🎯 Key Features
+
+✅ **Event-Driven Architecture** - Decoupled services via Kafka
+✅ **Service Discovery** - Automatic registration with Eureka
+✅ **API Gateway** - Single entry point for all clients
+✅ **Master Data Management** - Centralized reference data
+✅ **Appointment Scheduling** - Complete booking workflow
+✅ **Encounter Management** - Auto-generated clinical records
+✅ **Audit Trail** - Full history of all changes
+✅ **Docker Support** - Easy local development
+✅ **Flyway Migrations** - Version-controlled database schema
+✅ **Swagger Documentation** - Interactive API docs
+✅ **Health Checks** - Monitoring and observability
+✅ **JWT Ready** - Authentication infrastructure in place
+
+---
+
+## 📖 Additional Documentation
+
+- [AUTHENTICATION_GUIDE.md](./AUTHENTICATION_GUIDE.md) - Complete authentication guide for multiple clients
+- [Swagger UI](http://localhost:8082/swagger-ui.html) - Interactive API documentation
+
+---
 
 ## 🤝 Contributing
 
-1. Create a feature branch
-2. Make changes
-3. Write tests
-4. Submit pull request
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit changes (`git commit -m 'Add amazing feature'`)
+4. Push to branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
-## 📝 License
+---
 
-MIT License
-
-## 📞 Contact
+## 📧 Support
 
 For questions and support, please open an issue in the repository.
 
 ---
 
-**Note**: This is a production-ready template. Adjust configurations, security settings, and infrastructure based on your deployment environment.
+## 🎉 Summary
+
+You now have a **fully functional microservices backend** for appointment scheduling with:
+
+| Service | Status | Purpose |
+|---------|--------|---------|
+| Service Discovery | ✅ | Service registration (Eureka) |
+| API Gateway | ✅ | Single entry point (Port 8080) |
+| Scheduling Service | ✅ | Appointment management |
+| Encounter Service | ✅ | Clinical documentation |
+| Master Data Service | ✅ | Reference data (types, resources, locations) |
+
+**All services are production-ready with:**
+- Docker support
+- Database migrations
+- Event-driven communication
+- Health checks
+- API documentation
+- Audit trails
+- Error handling
+- Logging
+
+**Start building your frontend and connect to:**
+`http://localhost:8080/api/v1/*`
